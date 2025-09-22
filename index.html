@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YouTube Karaoke Jukebox</title>
+    <!-- Tailwind CSS for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts: Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Sarabun:wght@400;500;700&display=swap" rel="stylesheet">
+    <!-- Custom Styles -->
+    <style>
+        body {
+            font-family: 'Sarabun', 'Inter', sans-serif;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+            overflow: hidden; /* Prevent scrolling of the page */
+        }
+        /* Style for draggable items */
+        .dragging {
+            opacity: 0.5;
+            background: #4a5568;
+        }
+        /* Custom scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #2d3748;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #4a5568;
+            border-radius: 10px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #718096;
+        }
+        /* Styles for fullscreen video background */
+        #player-container iframe {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 100vw;
+            height: 56.25vw; /* 100 * 9 / 16 = 56.25 */
+            min-height: 100vh;
+            min-width: 177.77vh; /* 100 * 16 / 9 = 177.77 */
+            transform: translate(-50%, -50%);
+        }
+    </style>
+</head>
+<body class="bg-black text-white antialiased">
+
+    <!-- Fullscreen Player Background -->
+    <div id="player-container" class="fixed top-0 left-0 w-full h-full z-0 pointer-events-none">
+        <div id="player"></div>
+    </div>
+
+    <!-- UI Sidebar -->
+    <div id="ui-container" class="fixed top-0 right-0 h-full w-full lg:w-[450px] bg-gray-900/80 backdrop-blur-lg shadow-2xl z-20 flex flex-col transition-transform duration-300 ease-in-out translate-x-full">
+        
+        <!-- API Key Input Section (Overlay) -->
+        <div id="api-key-section" class="absolute inset-0 bg-gray-900 z-30 flex flex-col justify-center items-center p-6 text-center">
+            <div class="w-full max-w-md">
+                <h2 class="text-2xl font-bold mb-3">ตั้งค่า YouTube API Key</h2>
+                <p class="text-gray-400 mb-4 text-sm">
+                    โปรเจกต์นี้จำเป็นต้องใช้ YouTube Data API v3 Key ในการค้นหาวิดีโอ
+                    <a href="https://developers.google.com/youtube/v3/getting-started" target="_blank" class="text-blue-400 hover:underline">ดูวิธีสร้าง API Key ที่นี่</a>.
+                    Key ของคุณจะถูกบันทึกไว้ในเบราว์เซอร์เท่านั้น
+                </p>
+                <div class="flex items-center space-x-2">
+                    <input type="password" id="api-key-input" class="w-full bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-purple-500" placeholder="ใส่ YouTube Data API v3 Key ของคุณที่นี่">
+                    <button id="save-api-key-btn" class="bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded-md transition duration-300">บันทึก</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main UI Content (Hidden until API key is set) -->
+        <div id="main-content" class="hidden h-full flex flex-col gap-4 p-4 lg:p-6">
+            <!-- Header -->
+            <header class="text-center flex-shrink-0">
+                 <h1 class="text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-pink-600">🎤 Karaoke Jukebox</h1>
+            </header>
+            
+             <!-- Now Playing & Controls -->
+            <div class="bg-gray-800/50 p-3 rounded-lg shadow-lg flex-shrink-0">
+                <h3 class="text-md font-semibold text-gray-400">กำลังเล่น:</h3>
+                <p id="now-playing" class="text-lg font-bold truncate">ยังไม่มีเพลงเล่น</p>
+                <div class="flex items-center justify-center mt-3">
+                     <button id="skip-btn" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-6 rounded-full transition duration-300 shadow-md disabled:bg-gray-600 disabled:cursor-not-allowed w-full">
+                        ข้ามเพลง
+                    </button>
+                </div>
+            </div>
+
+            <!-- Search Section -->
+            <div class="bg-gray-800/50 p-4 rounded-lg shadow-lg flex-shrink-0">
+                <h2 class="text-xl font-semibold mb-3">ค้นหาเพลง</h2>
+                <form id="search-form" class="flex space-x-2">
+                    <input type="text" id="search-input" class="w-full bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-purple-500" placeholder="ชื่อเพลง + karaoke...">
+                    <button type="submit" class="bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded-md transition duration-300">ค้นหา</button>
+                </form>
+                <!-- Search Results -->
+                <div id="search-results" class="mt-4 max-h-48 overflow-y-auto space-y-2 pr-2">
+                    <!-- Results will be injected here -->
+                </div>
+            </div>
+
+            <!-- Queue Section -->
+            <div class="bg-gray-800/50 p-4 rounded-lg shadow-lg flex-grow flex flex-col overflow-hidden">
+                <h2 class="text-xl font-semibold mb-3 flex-shrink-0">คิวเพลง (<span id="queue-count">0</span>)</h2>
+                <div id="queue-list" class="flex-grow overflow-y-auto space-y-2 pr-2">
+                   <p class="text-gray-500 text-center py-4">ยังไม่มีเพลงในคิว</p>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- UI Toggle Button -->
+    <button id="toggle-ui-btn" class="fixed bottom-4 right-4 z-30 bg-purple-600 text-white w-14 h-14 rounded-full shadow-lg flex items-center justify-center">
+        <svg id="toggle-icon-menu" xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16m-7 6h7" />
+        </svg>
+        <svg id="toggle-icon-close" xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 hidden" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+        </svg>
+    </button>
+
+
+    <!-- YouTube IFrame API -->
+    <script src="https://www.youtube.com/iframe_api"></script>
+
+    <!-- Main Application Logic -->
+    <script>
+        // DOM Elements
+        const apiKeySection = document.getElementById('api-key-section');
+        const apiKeyInput = document.getElementById('api-key-input');
+        const saveApiKeyBtn = document.getElementById('save-api-key-btn');
+        const mainContent = document.getElementById('main-content');
+        const searchForm = document.getElementById('search-form');
+        const searchInput = document.getElementById('search-input');
+        const searchResultsContainer = document.getElementById('search-results');
+        const queueListContainer = document.getElementById('queue-list');
+        const nowPlayingEl = document.getElementById('now-playing');
+        const skipBtn = document.getElementById('skip-btn');
+        const queueCountEl = document.getElementById('queue-count');
+        const uiContainer = document.getElementById('ui-container');
+        const toggleUiBtn = document.getElementById('toggle-ui-btn');
+        const toggleIconMenu = document.getElementById('toggle-icon-menu');
+        const toggleIconClose = document.getElementById('toggle-icon-close');
+        const playerContainer = document.getElementById('player-container');
+
+
+        // App State
+        let player;
+        let queue = [];
+        let YOUTUBE_API_KEY = '';
+
+        // --- YouTube Player Setup ---
+        function onYouTubeIframeAPIReady() {
+            player = new YT.Player('player', {
+                height: '100%',
+                width: '100%',
+                playerVars: {
+                    'playsinline': 1,
+                    'autoplay': 1,
+                    'controls': 1,
+                    'rel': 0,
+                    'iv_load_policy': 3,
+                    'modestbranding': 1
+                },
+                events: {
+                    'onReady': onPlayerReady,
+                    'onStateChange': onPlayerStateChange
+                }
+            });
+        }
+
+        function onPlayerReady(event) {
+            updateSkipButtonState();
+            // Allow clicking on the player
+            playerContainer.classList.remove('pointer-events-none');
+        }
+
+        function onPlayerStateChange(event) {
+            if (event.data === YT.PlayerState.ENDED) {
+                playNextSong();
+            }
+        }
+        
+        function playNextSong() {
+            if (queue.length > 0) {
+                queue.shift();
+                renderQueue(); 
+                if (queue.length > 0) {
+                    const nextSong = queue[0];
+                    player.loadVideoById(nextSong.videoId);
+                    nowPlayingEl.textContent = nextSong.title;
+                } else {
+                    nowPlayingEl.textContent = 'คิวเพลงว่างแล้ว';
+                    player.stopVideo();
+                }
+            }
+            updateSkipButtonState();
+        }
+
+        // --- API Key Management ---
+        function loadApiKey() {
+            const savedKey = localStorage.getItem('youtubeApiKey');
+            if (savedKey) {
+                YOUTUBE_API_KEY = savedKey;
+                apiKeyInput.value = savedKey;
+                apiKeySection.classList.add('hidden');
+                mainContent.classList.remove('hidden');
+            }
+            // By default, the UI panel is hidden via CSS class `translate-x-full`.
+            // The user must click the toggle button to open it, regardless of screen size.
+        }
+
+        function saveApiKey() {
+            const key = apiKeyInput.value.trim();
+            if (key) {
+                YOUTUBE_API_KEY = key;
+                localStorage.setItem('youtubeApiKey', key);
+                apiKeySection.classList.add('hidden');
+                mainContent.classList.remove('hidden');
+                alert('API Key ถูกบันทึกแล้ว!');
+            } else {
+                alert('กรุณาใส่ API Key');
+            }
+        }
+
+        // --- Search Functionality ---
+        async function searchYoutube(query) {
+            if (!YOUTUBE_API_KEY) {
+                // If no API key, prompt user by opening the panel
+                toggleUiPanel();
+                alert('กรุณาตั้งค่า YouTube API Key ก่อนครับ');
+                return;
+            }
+            const url = `https://www.googleapis.com/youtube/v3/search?part=snippet&q=${encodeURIComponent(query)}&type=video&maxResults=10&key=${YOUTUBE_API_KEY}`;
+            searchResultsContainer.innerHTML = `<p class="text-gray-400">กำลังค้นหา...</p>`;
+            try {
+                const response = await fetch(url);
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error.message || 'เกิดข้อผิดพลาดในการค้นหา');
+                }
+                const data = await response.json();
+                renderSearchResults(data.items);
+            } catch (error) {
+                searchResultsContainer.innerHTML = `<p class="text-red-400">เกิดข้อผิดพลาด: ${error.message}</p>`;
+                console.error('Search error:', error);
+            }
+        }
+        
+        function renderSearchResults(items) {
+            searchResultsContainer.innerHTML = '';
+            if (items.length === 0) {
+                searchResultsContainer.innerHTML = '<p class="text-gray-400">ไม่พบผลลัพธ์</p>';
+                return;
+            }
+            items.forEach(item => {
+                const videoId = item.id.videoId;
+                const title = item.snippet.title;
+                const thumbnail = item.snippet.thumbnails.default.url;
+                const resultEl = document.createElement('div');
+                resultEl.className = 'flex items-center p-2 bg-gray-700/50 rounded-md hover:bg-gray-600/50 transition duration-200';
+                resultEl.innerHTML = `
+                    <img src="${thumbnail}" alt="thumbnail" class="w-16 h-9 object-cover rounded-sm mr-3">
+                    <p class="flex-grow text-sm truncate">${title}</p>
+                    <button class="add-to-queue-btn bg-green-600 hover:bg-green-700 text-white font-bold text-xs py-1 px-2 rounded ml-2 flex-shrink-0">เพิ่ม</button>
+                `;
+                resultEl.querySelector('.add-to-queue-btn').addEventListener('click', () => {
+                    addToQueue(videoId, title);
+                });
+                searchResultsContainer.appendChild(resultEl);
+            });
+        }
+
+        // --- Queue Management ---
+        function addToQueue(videoId, title) {
+            queue.push({ videoId, title });
+            renderQueue();
+            if (player && typeof player.getPlayerState === 'function' && (player.getPlayerState() !== YT.PlayerState.PLAYING && player.getPlayerState() !== YT.PlayerState.BUFFERING) && queue.length === 1) {
+                player.loadVideoById(videoId);
+                nowPlayingEl.textContent = title;
+            }
+            updateSkipButtonState();
+        }
+
+        function renderQueue() {
+            queueListContainer.innerHTML = '';
+            queueCountEl.textContent = queue.length;
+            if (queue.length === 0) {
+                 queueListContainer.innerHTML = '<p class="text-gray-500 text-center py-4">ยังไม่มีเพลงในคิว</p>';
+                return;
+            }
+            queue.forEach((song, index) => {
+                const queueEl = document.createElement('div');
+                queueEl.className = 'flex items-center p-2 rounded-md transition duration-200 cursor-grab';
+                queueEl.setAttribute('draggable', 'true');
+                queueEl.dataset.index = index;
+                if (index === 0) {
+                    queueEl.classList.add('bg-purple-800/70');
+                } else {
+                     queueEl.classList.add('bg-gray-700/50');
+                }
+                queueEl.innerHTML = `
+                    <span class="mr-2 text-gray-400">${index + 1}.</span>
+                    <p class="flex-grow text-sm truncate">${song.title}</p>
+                    <button class="remove-from-queue-btn bg-red-600 hover:bg-red-700 text-white font-bold text-xs py-1 px-2 rounded ml-2 flex-shrink-0">ลบ</button>
+                `;
+                queueEl.querySelector('.remove-from-queue-btn').addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    removeFromQueue(index);
+                });
+                queueEl.addEventListener('dragstart', handleDragStart);
+                queueEl.addEventListener('dragover', handleDragOver);
+                queueEl.addEventListener('drop', handleDrop);
+                queueEl.addEventListener('dragend', handleDragEnd);
+                queueListContainer.appendChild(queueEl);
+            });
+        }
+        
+        function removeFromQueue(index) {
+            if (index === 0 && queue.length > 1) {
+                playNextSong();
+            } else {
+                queue.splice(index, 1);
+                renderQueue();
+                if (index === 0 && queue.length > 0) {
+                    const nextSong = queue[0];
+                    player.loadVideoById(nextSong.videoId);
+                    nowPlayingEl.textContent = nextSong.title;
+                } else if (queue.length === 0) {
+                    nowPlayingEl.textContent = 'คิวเพลงว่างแล้ว';
+                    player.stopVideo();
+                }
+            }
+            updateSkipButtonState();
+        }
+
+        function updateSkipButtonState() {
+            skipBtn.disabled = queue.length <= 1;
+        }
+
+        // --- Drag and Drop Logic ---
+        let draggedItemIndex = null;
+        function handleDragStart(e) {
+            draggedItemIndex = parseInt(this.dataset.index);
+            this.classList.add('dragging');
+        }
+        function handleDragOver(e) { e.preventDefault(); }
+        function handleDrop(e) {
+            e.preventDefault();
+            const droppedOnItemIndex = parseInt(this.dataset.index);
+            const draggedItem = queue.splice(draggedItemIndex, 1)[0];
+            queue.splice(droppedOnItemIndex, 0, draggedItem);
+            renderQueue();
+            if (draggedItemIndex === 0 || droppedOnItemIndex === 0) {
+                const newFirstSong = queue[0];
+                player.loadVideoById(newFirstSong.videoId);
+                nowPlayingEl.textContent = newFirstSong.title;
+            }
+        }
+        function handleDragEnd(e) {
+            this.classList.remove('dragging');
+        }
+
+        // --- UI Toggle for Mobile ---
+        function toggleUiPanel() {
+            uiContainer.classList.toggle('translate-x-full');
+            toggleIconMenu.classList.toggle('hidden');
+            toggleIconClose.classList.toggle('hidden');
+        }
+
+        // --- Event Listeners ---
+        document.addEventListener('DOMContentLoaded', loadApiKey);
+        saveApiKeyBtn.addEventListener('click', saveApiKey);
+        searchForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const query = searchInput.value.trim();
+            if (query) { searchYoutube(query); }
+        });
+        skipBtn.addEventListener('click', () => {
+             if (queue.length > 1) { playNextSong(); }
+        });
+        toggleUiBtn.addEventListener('click', toggleUiPanel);
+
+    </script>
+</body>
+</html>
+
